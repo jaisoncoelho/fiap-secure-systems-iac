@@ -81,7 +81,7 @@ resource "hcloud_firewall" "master_node_firewall" {
 resource "hcloud_server" "master-node" {
   name         = "secure-systems-master-node"
   image        = "ubuntu-24.04"
-  server_type  = "cx22"
+  server_type  = "cx23"
   location     = "fsn1"
   firewall_ids = [hcloud_firewall.master_node_firewall.id]
 
@@ -109,7 +109,7 @@ resource "hcloud_server" "worker-nodes" {
   # The name will be secure-systems-worker-node-0
   name        = "secure-systems-worker-node-${count.index}"
   image       = "ubuntu-24.04"
-  server_type = "cx22"
+  server_type = "cx23"
   location    = "fsn1"
 
   public_net {

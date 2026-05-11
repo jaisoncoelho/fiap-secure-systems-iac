@@ -76,7 +76,7 @@ resource "hcloud_firewall" "rabbitmq_firewall" {
 resource "hcloud_server" "rabbitmq" {
   name         = "rabbitmq-node"
   image        = "ubuntu-24.04"
-  server_type  = "cx22"
+  server_type  = "cx23"
   location     = "fsn1"
   firewall_ids = [hcloud_firewall.rabbitmq_firewall.id]
 
