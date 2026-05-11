@@ -37,6 +37,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      actions: read
 
     steps:
       - name: Checkout repository
@@ -48,14 +49,23 @@ jobs:
           terraform_version: "1.5.0"
           terraform_wrapper: false
 
+      - name: Terraform Init
+        id: init
+        run: terraform init
+
+      - name: Restore Terraform State
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: terraform-state
+          workflow: terraform.yml
+          branch: main
+          workflow_conclusion: success
+          if_no_artifact_found: warn
+
       - name: Terraform Format Check
         id: fmt
         run: terraform fmt -check -recursive
         continue-on-error: true
-
-      - name: Terraform Init
-        id: init
-        run: terraform init
 
       - name: Terraform Validate
         id: validate
@@ -117,6 +127,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
     permissions:
       contents: read
+      actions: write
 
     steps:
       - name: Checkout repository
@@ -131,11 +142,31 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
+      - name: Restore Terraform State
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: terraform-state
+          workflow: terraform.yml
+          branch: main
+          workflow_conclusion: success
+          if_no_artifact_found: warn
+
       - name: Terraform Plan
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
+
+      - name: Save Terraform State
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state
+          path: |
+            terraform.tfstate
+            terraform.tfstate.backup
+          retention-days: 90
+          overwrite: true
 
       - name: Get Outputs
         id: outputs
@@ -199,6 +230,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
     permissions:
       contents: read
+      actions: write
 
     steps:
       - name: Checkout repository
@@ -213,8 +245,28 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
+      - name: Restore Terraform State
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: terraform-state
+          workflow: terraform.yml
+          branch: main
+          workflow_conclusion: success
+          if_no_artifact_found: warn
+
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
+
+      - name: Save Terraform State
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state
+          path: |
+            terraform.tfstate
+            terraform.tfstate.backup
+          retention-days: 90
+          overwrite: true
 
       - name: Summary
         run: |

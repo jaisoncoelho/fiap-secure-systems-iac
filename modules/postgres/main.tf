@@ -45,7 +45,7 @@ resource "hcloud_firewall" "postgres_firewall" {
 resource "hcloud_server" "postgres" {
   name         = "postgres-node"
   image        = "ubuntu-24.04"
-  server_type  = "cx33"
+  server_type  = "cx22"
   location     = "fsn1"
   firewall_ids = [hcloud_firewall.postgres_firewall.id]
 
