@@ -1,0 +1,230 @@
+name: Terraform Secure Systems Infrastructure
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "**.tf"
+      - "**.tfvars.example"
+      - "modules/**"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action to perform"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: "plan"
+
+env:
+  TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+  TF_VAR_github_pat: ${{ secrets.GTHB_PAT_TOKEN }}
+  TF_VAR_network_name: "secure-systems-network"
+  TF_VAR_ssh_public_keys: '["${{ secrets.SSH_PUBLIC_KEY }}"]'
+  TF_VAR_ssh_private_key: ${{ secrets.HETZNER_SSH_KEY }}
+  TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+  TF_VAR_rabbitmq_pass: ${{ secrets.RABBITMQ_PASSWORD }}
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+          terraform_wrapper: false
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        run: terraform init
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan -out=tfplan -no-color
+          terraform show -no-color tfplan > plan_output.txt
+        continue-on-error: true
+
+      - name: Comment PR with Plan
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('plan_output.txt', 'utf8');
+            const output = `### ☸️ Secure Systems Infrastructure Terraform Plan
+
+            #### Terraform Format 🖌 \`${{ steps.fmt.outcome }}\`
+            #### Terraform Init ⚙️ \`${{ steps.init.outcome }}\`
+            #### Terraform Validate 🤖 \`${{ steps.validate.outcome }}\`
+            #### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
+
+            <details><summary>📋 Show Plan Details</summary>
+
+            \`\`\`terraform
+            ${plan}
+            \`\`\`
+
+            </details>
+
+            **⚠️ Important**: This is the SECURE SYSTEMS infrastructure. Changes here affect K3s nodes, Postgres, and RabbitMQ.
+
+            **To apply after merge**: Go to Actions → Run workflow → Select "apply"
+
+            *Pushed by: @${{ github.actor }}*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+      - name: Upload Plan
+        if: steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: tfplan
+          retention-days: 5
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+      - name: Get Outputs
+        id: outputs
+        run: |
+          echo "master_node_ip=$(terraform output -raw master_node_ip)" >> $GITHUB_OUTPUT
+
+      - name: Wait for K3s to be ready
+        run: |
+          echo "Waiting 60 seconds for K3s to initialize..."
+          sleep 60
+
+      - name: Fetch Kubeconfig
+        id: kubeconfig
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ steps.outputs.outputs.master_node_ip }} >> ~/.ssh/known_hosts
+
+          # Wait for kubeconfig to be available
+          for i in {1..10}; do
+            if scp -i ~/.ssh/id_rsa cluster@${{ steps.outputs.outputs.master_node_ip }}:/etc/rancher/k3s/k3s.yaml ./kubeconfig 2>/dev/null; then
+              echo "Kubeconfig retrieved successfully"
+              break
+            fi
+            echo "Waiting for kubeconfig... attempt $i/10"
+            sleep 10
+          done
+
+          sed -i "s/127.0.0.1/${{ steps.outputs.outputs.master_node_ip }}/g" kubeconfig
+
+      - name: Verify Cluster
+        run: |
+          export KUBECONFIG=$(pwd)/kubeconfig
+          kubectl version || echo "Cluster not ready yet"
+          kubectl get nodes || echo "Nodes not ready yet"
+
+      - name: Summary
+        run: |
+          echo "## ☸️ Secure Systems Infrastructure Applied" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Outputs" >> $GITHUB_STEP_SUMMARY
+          echo "- **Master Node IP**: \`${{ steps.outputs.outputs.master_node_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. **Update Application Repository Variables**:" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "   gh variable set HETZNER_HOST --body \"${{ steps.outputs.outputs.master_node_ip }}\" --repo ejklock/fiap-secure-systems" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Configure SSH key for application deployments" >> $GITHUB_STEP_SUMMARY
+          echo "3. Deploy application from \`fiap-secure-systems\` repository" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### SSH Access" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "ssh cluster@${{ steps.outputs.outputs.master_node_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  terraform-destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
+
+      - name: Summary
+        run: |
+          echo "## 🗑️ Secure Systems Infrastructure Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Warning**: All Secure Systems resources have been destroyed." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This includes:" >> $GITHUB_STEP_SUMMARY
+          echo "- K3s master and worker nodes" >> $GITHUB_STEP_SUMMARY
+          echo "- PostgreSQL server" >> $GITHUB_STEP_SUMMARY
+          echo "- RabbitMQ server" >> $GITHUB_STEP_SUMMARY
+          echo "- All deployed applications" >> $GITHUB_STEP_SUMMARY
+          echo "- Network and firewall configurations" >> $GITHUB_STEP_SUMMARY

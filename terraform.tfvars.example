@@ -1,0 +1,25 @@
+hcloud_token    = "your-hetzner-cloud-token"
+network_name    = "secure-systems-network"
+github_username = "ejklock"
+github_pat      = "your-github-personal-access-token"
+
+# SSH Keys for node access
+ssh_public_keys = [
+  "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... your-public-key"
+]
+ssh_private_key = <<-EOT
+-----BEGIN OPENSSH PRIVATE KEY-----
+your-private-key-content-here
+-----END OPENSSH PRIVATE KEY-----
+EOT
+
+# PostgreSQL Configuration
+postgres_user     = "fiap"
+postgres_password = "your-postgres-password"
+
+# Database names to create
+database_names = ["fiap_upload", "fiap_processing", "fiap_report"]
+
+# RabbitMQ Configuration
+rabbitmq_user = "admin"
+rabbitmq_pass = "your-rabbitmq-password"

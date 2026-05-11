@@ -1,0 +1,33 @@
+# Terraform files
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform.tfvars.example
+*.tfplan
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Backend configuration
+backend.tf
+
+# CLI configuration files
+.terraformrc
+terraform.rc
+
+# macOS
+.DS_Store
+
+# Sensitive files
+kubeconfig
+*.pem
+*.key
