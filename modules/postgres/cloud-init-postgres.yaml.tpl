@@ -40,6 +40,16 @@ write_files:
       export DEBIAN_FRONTEND=noninteractive
       export NEEDRESTART_MODE=a
 
+      # Hetzner Cloud PAM workaround: Hetzner provisions servers with PAM requiring
+      # a password change on first login. When apt installs postgresql-16, the
+      # postgresql-common post-install script runs `chfn` to set the postgres
+      # system user's GECOS field. chfn invokes PAM, which rejects the call because
+      # root's password is marked as expired — causing the install to fail with:
+      #   "chfn: PAM: Authentication token is no longer valid; new one required"
+      # Setting the last-password-change date to today clears the expiration flag
+      # without altering the actual password.
+      chage -d "$(date +%Y-%m-%d)" root || true
+
       # Install PostgreSQL 16 from official apt repo
       echo "Adding PostgreSQL apt repository..."
       curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
