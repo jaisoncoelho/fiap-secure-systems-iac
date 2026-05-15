@@ -155,6 +155,48 @@ write_files:
       ignoreregex =
     permissions: "0644"
 
+  - path: /etc/sysctl.d/99-nat-gateway.conf
+    content: |
+      # Enable IP forwarding so this master node can act as a NAT gateway
+      # for private-only nodes (Postgres, RabbitMQ) that have no public IP.
+      net.ipv4.ip_forward = 1
+    permissions: "0644"
+
+  - path: /usr/local/bin/setup-nat-gateway.sh
+    content: |
+      #!/bin/bash
+      # Configure this master node as a NAT gateway for private-network nodes.
+      # Private nodes (Postgres at 10.0.2.2, RabbitMQ at 10.0.2.10) have no
+      # public IP and route internet traffic through this node (10.0.2.1).
+      # Rules are injected into /etc/ufw/before.rules so they survive UFW restarts.
+
+      set -e
+
+      # Apply sysctl immediately
+      sysctl -p /etc/sysctl.d/99-nat-gateway.conf
+
+      # Set UFW default forward policy to ACCEPT
+      sed -i 's/DEFAULT_FORWARD_POLICY="DROP"/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
+
+      # Inject NAT MASQUERADE rules into /etc/ufw/before.rules BEFORE the filter table.
+      # Only inject once (idempotent check).
+      if ! grep -q 'MASQUERADE' /etc/ufw/before.rules; then
+        # Prepend the NAT table section at the very top of before.rules
+        TMP=$(mktemp)
+        cat > "$TMP" <<'NATRULES'
+      # NAT table — MASQUERADE outbound traffic from private network via public interface (eth0)
+      # This enables private-only nodes to reach the internet through this NAT gateway.
+      *nat
+      :POSTROUTING ACCEPT [0:0]
+      -A POSTROUTING -s 10.0.0.0/16 -o eth0 -j MASQUERADE
+      COMMIT
+
+      NATRULES
+        cat /etc/ufw/before.rules >> "$TMP"
+        mv "$TMP" /etc/ufw/before.rules
+      fi
+    permissions: "0755"
+
 runcmd:
   - apt-get update -y
   # Configure routing for Hetzner private network
@@ -169,6 +211,8 @@ runcmd:
   - sudo -u cluster bash -c 'echo "  UserKnownHostsFile=/dev/null" >> /home/cluster/.ssh/config'
   - chmod 600 /home/cluster/.ssh/config
   - chown cluster:cluster /home/cluster/.ssh/config
+  # Set up NAT gateway BEFORE ufw is enabled
+  - /usr/local/bin/setup-nat-gateway.sh
   # Configure UFW firewall
   - ufw default deny incoming
   - ufw default allow outgoing

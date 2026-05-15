@@ -10,24 +10,22 @@ terraform {
 resource "hcloud_firewall" "rabbitmq_firewall" {
   name = "rabbitmq-firewall"
 
-  # SSH access
+  # SSH access — private network only (no public IP; access via jump host through master)
   rule {
     direction = "in"
     protocol  = "tcp"
     port      = "22"
     source_ips = [
-      "0.0.0.0/0",
-      "::/0"
+      "10.0.0.0/8"
     ]
   }
 
-  # ICMP (ping)
+  # ICMP (ping) — private network only
   rule {
     direction = "in"
     protocol  = "icmp"
     source_ips = [
-      "0.0.0.0/0",
-      "::/0"
+      "10.0.0.0/8"
     ]
   }
 
@@ -41,14 +39,13 @@ resource "hcloud_firewall" "rabbitmq_firewall" {
     ]
   }
 
-  # RabbitMQ Management UI (15672)
+  # RabbitMQ Management UI (15672) — private network only (no public IP)
   rule {
     direction = "in"
     protocol  = "tcp"
     port      = "15672"
     source_ips = [
-      "0.0.0.0/0",
-      "::/0"
+      "10.0.0.0/8"
     ]
   }
 
@@ -81,7 +78,7 @@ resource "hcloud_server" "rabbitmq" {
   firewall_ids = [hcloud_firewall.rabbitmq_firewall.id]
 
   public_net {
-    ipv4_enabled = true
+    ipv4_enabled = false
     ipv6_enabled = false
   }
 

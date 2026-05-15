@@ -37,6 +37,26 @@ write_files:
 
       echo "=== PostgreSQL Setup Started at $(date) ==="
 
+      # Route internet traffic through master node NAT gateway (no public IP on this server).
+      # The master node at 10.0.2.1 has a public IP and is configured as a NAT gateway.
+      # Without this route, apt-get and curl calls would fail — there is no direct internet
+      # access from this private-only node.
+      echo "Configuring default route via NAT gateway (10.0.2.1)..."
+      ip route replace default via 10.0.2.1 || true
+
+      # Persist the default route across reboots using a systemd-networkd drop-in.
+      # Ubuntu 24.04 uses systemd-networkd; /etc/network/interfaces is not available.
+      mkdir -p /etc/systemd/network
+      cat > /etc/systemd/network/10-hetzner-private-default-route.network <<NETCFG
+      [Match]
+      Name=eth0
+
+      [Route]
+      Gateway=10.0.2.1
+      GatewayOnLink=yes
+      NETCFG
+      systemctl restart systemd-networkd || true
+
       export DEBIAN_FRONTEND=noninteractive
       export NEEDRESTART_MODE=a
 

@@ -28,3 +28,15 @@ module "rabbitmq" {
   rabbitmq_user      = var.rabbitmq_user
   rabbitmq_pass      = var.rabbitmq_pass
 }
+
+# Route all internet-bound traffic from private nodes through the master node NAT gateway.
+# Hetzner's SDN requires an explicit hcloud_network_route to deliver packets destined for
+# 0.0.0.0/0 from private-only nodes (Postgres, RabbitMQ) to the master (10.0.2.1).
+# Without this, internet-bound packets from private nodes would be dropped by the SDN.
+resource "hcloud_network_route" "nat_gateway" {
+  network_id  = module.network.network_id
+  destination = "0.0.0.0/0"
+  gateway     = "10.0.2.1"
+
+  depends_on = [module.cluster, module.network]
+}
