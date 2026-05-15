@@ -38,6 +38,12 @@ write_files:
 
       echo "=== RabbitMQ Setup Started at $(date) ==="
 
+      # Hetzner Cloud PAM workaround: Hetzner provisions servers with PAM requiring
+      # a password change on first login. Package post-install scripts that invoke
+      # chfn/adduser will fail because root's password is marked as expired.
+      # Setting the last-password-change date to today clears the expiration flag.
+      chage -d "$(date +%Y-%m-%d)" root || true
+
       # Fix PAM issue that prevents RabbitMQ installation
       echo "Configuring system for RabbitMQ installation..."
 
