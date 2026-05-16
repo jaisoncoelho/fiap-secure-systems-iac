@@ -177,16 +177,16 @@ write_files:
       # the server type and kernel version.
       PUB_IF=$(ip -o addr show | awk '$4 !~ "^10\." && $4 !~ "^127\." && $4 ~ /\// {print $2; exit}')
       if [ -z "$PUB_IF" ]; then
-        echo "ERROR: Could not detect public network interface" >&2
-        exit 1
+        echo "WARNING: Could not detect public interface, falling back to eth0"
+        PUB_IF="eth0"
       fi
       echo "Detected public interface: $PUB_IF"
 
       # Detect the private interface: the one with the 10.0.2.1 address (master node IP).
       PRIV_IF=$(ip -o addr show | awk '$4 ~ "^10\.0\.2\.1/" {print $2}')
       if [ -z "$PRIV_IF" ]; then
-        echo "ERROR: Could not detect private network interface (expected 10.0.2.1)" >&2
-        exit 1
+        echo "WARNING: Could not detect private interface, falling back to eth1"
+        PRIV_IF="eth1"
       fi
       echo "Detected private interface: $PRIV_IF"
 
@@ -195,6 +195,11 @@ write_files:
 
       # Set UFW default forward policy to ACCEPT
       sed -i 's/DEFAULT_FORWARD_POLICY="DROP"/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
+
+      # Add route for private network via detected interface and persist across reboots
+      ip route add 10.0.0.0/8 dev "$PRIV_IF" || true
+      mkdir -p /etc/dhcp
+      echo "10.0.0.0/8 dev $PRIV_IF" >> /etc/dhcp/dhclient-exit-hooks.d/hetzner-routes || true
 
       # Inject NAT MASQUERADE rules into /etc/ufw/before.rules BEFORE the filter table.
       # Only inject once (idempotent check).
@@ -217,9 +222,7 @@ write_files:
 
 runcmd:
   - apt-get update -y
-  # Configure routing for Hetzner private network.
-  # Detect the private interface dynamically (the one with 10.0.2.1 assigned).
-  - bash -c 'PRIV_IF=$(ip -o addr show | awk '"'"'$4 ~ "^10\.0\.2\.1/" {print $2}'"'"'); if [ -n "$PRIV_IF" ]; then ip route add 10.0.0.0/8 dev "$PRIV_IF" || true; echo "10.0.0.0/8 dev $PRIV_IF" >> /etc/dhcp/dhclient-exit-hooks.d/hetzner-routes || true; else echo "WARNING: private interface not yet up, skipping route add" >&2; fi'
+  # Private network route is now configured inside setup-nat-gateway.sh
   # Generate SSH key for cluster user to access other nodes
   - sudo -u cluster ssh-keygen -t ed25519 -f /home/cluster/.ssh/id_ed25519 -N ""
   - sudo -u cluster cat /home/cluster/.ssh/id_ed25519.pub > /tmp/master-node-key.pub
