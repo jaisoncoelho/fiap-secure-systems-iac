@@ -19,6 +19,8 @@ module "postgres" {
   postgres_user      = var.postgres_user
   postgres_password  = var.postgres_password
   database_names     = var.database_names
+
+  depends_on = [hcloud_network_route.nat_gateway]
 }
 
 module "rabbitmq" {
@@ -27,6 +29,8 @@ module "rabbitmq" {
   ssh_public_keys    = var.ssh_public_keys
   rabbitmq_user      = var.rabbitmq_user
   rabbitmq_pass      = var.rabbitmq_pass
+
+  depends_on = [hcloud_network_route.nat_gateway]
 }
 
 # Route all internet-bound traffic from private nodes through the master node NAT gateway.

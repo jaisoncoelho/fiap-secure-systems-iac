@@ -43,19 +43,41 @@ write_files:
       # Without this route, apt-get and curl calls would fail — there is no direct internet
       # access from this private-only node.
       echo "Configuring default route via NAT gateway (10.0.2.1)..."
-      ip route replace default via 10.0.2.1 || true
+
+      # Detect the private network interface by its assigned IP (10.0.2.10 for rabbitmq).
+      # Interface names on Hetzner Ubuntu 24.04 may be eth0/eth1 or enp1s0/ens10.
+      PRIV_IP="10.0.2.10"
+      PRIV_IF=""
+      for attempt in $(seq 1 30); do
+        PRIV_IF=$(ip -o addr show | awk -v ip="$PRIV_IP" '$4 ~ "^" ip "/" {print $2}')
+        if [ -n "$PRIV_IF" ]; then
+          echo "Found private interface: $PRIV_IF (attempt $attempt)"
+          break
+        fi
+        echo "Waiting for interface with IP $PRIV_IP (attempt $attempt/30)..."
+        sleep 2
+      done
+
+      if [ -z "$PRIV_IF" ]; then
+        echo "ERROR: Could not find network interface with IP $PRIV_IP after 30 attempts" >&2
+        exit 1
+      fi
+
+      # Use 'onlink' so the kernel accepts the gateway even though it's not in the
+      # directly-connected subnet table entry for the private interface.
+      ip route replace default via 10.0.2.1 dev "$PRIV_IF" onlink || true
 
       # Persist the default route across reboots using a systemd-networkd drop-in.
       # Ubuntu 24.04 uses systemd-networkd; /etc/network/interfaces is not available.
       mkdir -p /etc/systemd/network
-      cat > /etc/systemd/network/10-hetzner-private-default-route.network <<NETCFG
-      [Match]
-      Name=eth0
-
-      [Route]
-      Gateway=10.0.2.1
-      GatewayOnLink=yes
-      NETCFG
+      {
+        echo "[Match]"
+        echo "Name=$PRIV_IF"
+        echo ""
+        echo "[Route]"
+        echo "Gateway=10.0.2.1"
+        echo "GatewayOnLink=yes"
+      } > /etc/systemd/network/10-hetzner-private-default-route.network
       systemctl restart systemd-networkd || true
 
       # Hetzner Cloud PAM workaround: Hetzner provisions servers with PAM requiring

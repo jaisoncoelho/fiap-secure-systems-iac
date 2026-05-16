@@ -172,6 +172,24 @@ write_files:
 
       set -e
 
+      # Detect the public interface: the one that does NOT have a 10.x.x.x address.
+      # On Hetzner, interface names may be eth0/eth1 or enp1s0/ens10 depending on
+      # the server type and kernel version.
+      PUB_IF=$(ip -o addr show | awk '$4 !~ "^10\." && $4 !~ "^127\." && $4 ~ /\// {print $2; exit}')
+      if [ -z "$PUB_IF" ]; then
+        echo "ERROR: Could not detect public network interface" >&2
+        exit 1
+      fi
+      echo "Detected public interface: $PUB_IF"
+
+      # Detect the private interface: the one with the 10.0.2.1 address (master node IP).
+      PRIV_IF=$(ip -o addr show | awk '$4 ~ "^10\.0\.2\.1/" {print $2}')
+      if [ -z "$PRIV_IF" ]; then
+        echo "ERROR: Could not detect private network interface (expected 10.0.2.1)" >&2
+        exit 1
+      fi
+      echo "Detected private interface: $PRIV_IF"
+
       # Apply sysctl immediately
       sysctl -p /etc/sysctl.d/99-nat-gateway.conf
 
@@ -183,15 +201,15 @@ write_files:
       if ! grep -q 'MASQUERADE' /etc/ufw/before.rules; then
         # Prepend the NAT table section at the very top of before.rules
         TMP=$(mktemp)
-        cat > "$TMP" <<'NATRULES'
-      # NAT table — MASQUERADE outbound traffic from private network via public interface (eth0)
-      # This enables private-only nodes to reach the internet through this NAT gateway.
-      *nat
-      :POSTROUTING ACCEPT [0:0]
-      -A POSTROUTING -s 10.0.0.0/16 -o eth0 -j MASQUERADE
-      COMMIT
-
-      NATRULES
+        {
+          echo "# NAT table — MASQUERADE outbound traffic from private network via public interface ($PUB_IF)"
+          echo "# This enables private-only nodes to reach the internet through this NAT gateway."
+          echo "*nat"
+          echo ":POSTROUTING ACCEPT [0:0]"
+          echo "-A POSTROUTING -s 10.0.0.0/16 -o $PUB_IF -j MASQUERADE"
+          echo "COMMIT"
+          echo ""
+        } > "$TMP"
         cat /etc/ufw/before.rules >> "$TMP"
         mv "$TMP" /etc/ufw/before.rules
       fi
@@ -199,9 +217,9 @@ write_files:
 
 runcmd:
   - apt-get update -y
-  # Configure routing for Hetzner private network
-  - ip route add 10.0.0.0/8 dev eth1 || true
-  - echo "10.0.0.0/8 dev eth1" >> /etc/dhcp/dhclient-exit-hooks.d/hetzner-routes || true
+  # Configure routing for Hetzner private network.
+  # Detect the private interface dynamically (the one with 10.0.2.1 assigned).
+  - bash -c 'PRIV_IF=$(ip -o addr show | awk '"'"'$4 ~ "^10\.0\.2\.1/" {print $2}'"'"'); if [ -n "$PRIV_IF" ]; then ip route add 10.0.0.0/8 dev "$PRIV_IF" || true; echo "10.0.0.0/8 dev $PRIV_IF" >> /etc/dhcp/dhclient-exit-hooks.d/hetzner-routes || true; else echo "WARNING: private interface not yet up, skipping route add" >&2; fi'
   # Generate SSH key for cluster user to access other nodes
   - sudo -u cluster ssh-keygen -t ed25519 -f /home/cluster/.ssh/id_ed25519 -N ""
   - sudo -u cluster cat /home/cluster/.ssh/id_ed25519.pub > /tmp/master-node-key.pub
