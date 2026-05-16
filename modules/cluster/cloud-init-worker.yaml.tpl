@@ -30,14 +30,30 @@ write_files:
       bantime = 7200
     permissions: "0644"
 
+  - path: /usr/local/bin/setup-worker-network.sh
+    content: |
+      #!/bin/bash
+      # Configure DNS — systemd-resolved stub (127.0.0.53) has no upstream DNS
+      # configured on private-only nodes (no DHCP from public network).
+      mkdir -p /etc/systemd/resolved.conf.d
+      echo -e "[Resolve]\nDNS=8.8.8.8 8.8.4.4 1.1.1.1" > /etc/systemd/resolved.conf.d/dns.conf
+      systemctl restart systemd-resolved || true
+
+      # Ensure default route via Hetzner SDN gateway.
+      # Private nodes use /32 IPs and cannot ARP for other nodes directly.
+      # Route through the SDN gateway (10.0.0.1) — the hcloud_network_route
+      # tells the SDN to forward 0.0.0.0/0 traffic to the master for NAT.
+      PRIV_IF=$(ip -o -4 addr show | awk '$4 ~ "^10\.0\." {print $2; exit}')
+      if [ -n "$PRIV_IF" ]; then
+        echo "Detected private interface: $PRIV_IF"
+        ip route replace default via 10.0.0.1 dev "$PRIV_IF" || true
+      else
+        echo "WARNING: Could not detect private interface, skipping route setup"
+      fi
+    permissions: "0755"
+
 runcmd:
-  # Configure DNS via systemd-resolved (Ubuntu 24.04 stub resolver has no upstream on private-only nodes)
-  - mkdir -p /etc/systemd/resolved.conf.d
-  - echo -e "[Resolve]\nDNS=8.8.8.8 8.8.4.4 1.1.1.1" > /etc/systemd/resolved.conf.d/dns.conf
-  - systemctl restart systemd-resolved || true
-  # Ensure default route via Hetzner SDN gateway (not direct to master — /32 IPs can't ARP directly)
-  - "PRIV_IF=$(ip -o addr show | awk '$3 == \"inet\" && $4 ~ \"^10\\\\.0\\\\.\" {print $2; exit}')"
-  - "[ -n \"$PRIV_IF\" ] && ip route replace default via 10.0.0.1 dev $PRIV_IF || true"
+  - /usr/local/bin/setup-worker-network.sh
   - apt-get update -y
   # Configure UFW firewall — allow all traffic from private network
   - ufw default deny incoming
