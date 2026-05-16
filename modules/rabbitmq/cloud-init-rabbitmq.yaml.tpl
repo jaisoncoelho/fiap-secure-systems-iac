@@ -31,14 +31,18 @@ write_files:
 
       echo "=== RabbitMQ Setup Started at $(date) ==="
 
-      # Route internet traffic through master node NAT gateway (no public IP on this server).
-      # The master node at 10.0.2.1 has a public IP and is configured as a NAT gateway.
-      # Without this route, apt-get and curl calls would fail — there is no direct internet
-      # access from this private-only node.
-      echo "Configuring default route via NAT gateway (10.0.2.1)..."
+      # Route internet traffic through the Hetzner SDN gateway (10.0.0.1).
+      # This private-only node has no public IP. The hcloud_network_route in Terraform
+      # tells the SDN to forward 0.0.0.0/0 traffic to the master node (10.0.2.1),
+      # which then NAT-masquerades it to the internet.
+      #
+      # IMPORTANT: We route via the SDN gateway (10.0.0.1), NOT directly via the master
+      # (10.0.2.1), because Hetzner assigns /32 IPs on private interfaces — nodes cannot
+      # ARP for each other directly. Only the SDN gateway (10.0.0.1) has a valid ARP entry.
+      echo "Configuring default route via Hetzner SDN gateway (10.0.0.1)..."
 
       # Detect the private network interface by its assigned IP (10.0.2.10 for rabbitmq).
-      # Interface names on Hetzner Ubuntu 24.04 may be eth0/eth1 or enp1s0/ens10.
+      # Interface names on Hetzner Ubuntu 24.04 may be eth0/eth1 or enp1s0/enp7s0.
       PRIV_IP="10.0.2.10"
       PRIV_IF=""
       for attempt in $(seq 1 30); do
@@ -56,9 +60,7 @@ write_files:
         exit 1
       fi
 
-      # Use 'onlink' so the kernel accepts the gateway even though it's not in the
-      # directly-connected subnet table entry for the private interface.
-      ip route replace default via 10.0.2.1 dev "$PRIV_IF" onlink || true
+      ip route replace default via 10.0.0.1 dev "$PRIV_IF" || true
 
       # Configure DNS via systemd-resolved drop-in.
       # cloud-init's manage_resolv_conf does NOT work on Ubuntu 24.04 because
@@ -73,11 +75,11 @@ write_files:
       # Persist the default route across reboots via networkd-dispatcher.
       # IMPORTANT: Do NOT create a systemd-networkd .network file — it would
       # override Hetzner's existing network config and strip the private IP
-      # from the interface (the root cause of the NAT gateway failure).
+      # from the interface.
       mkdir -p /etc/networkd-dispatcher/routable.d
       {
         echo '#!/bin/bash'
-        echo "ip route replace default via 10.0.2.1 dev $PRIV_IF onlink 2>/dev/null || true"
+        echo "ip route replace default via 10.0.0.1 dev $PRIV_IF 2>/dev/null || true"
       } > /etc/networkd-dispatcher/routable.d/50-nat-default-route.sh
       chmod +x /etc/networkd-dispatcher/routable.d/50-nat-default-route.sh
 

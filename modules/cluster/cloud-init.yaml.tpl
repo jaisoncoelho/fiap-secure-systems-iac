@@ -172,10 +172,12 @@ write_files:
 
       set -e
 
-      # Detect the public interface: the one that does NOT have a 10.x.x.x address.
+      # Detect the public interface: the one with a non-private, non-loopback IPv4 address.
+      # IMPORTANT: filter $3 == "inet" to skip inet6 lines — otherwise the IPv6 loopback
+      # address (::1/128) matches first and PUB_IF is set to "lo", breaking MASQUERADE.
       # On Hetzner, interface names may be eth0/eth1 or enp1s0/ens10 depending on
       # the server type and kernel version.
-      PUB_IF=$(ip -o addr show | awk '$4 !~ "^10\." && $4 !~ "^127\." && $4 ~ /\// {print $2; exit}')
+      PUB_IF=$(ip -o addr show | awk '$3 == "inet" && $4 !~ "^10\." && $4 !~ "^127\." {print $2; exit}')
       if [ -z "$PUB_IF" ]; then
         echo "WARNING: Could not detect public interface, falling back to eth0"
         PUB_IF="eth0"

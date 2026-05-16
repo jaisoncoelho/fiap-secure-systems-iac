@@ -31,10 +31,14 @@ write_files:
     permissions: "0644"
 
 runcmd:
+  # Configure DNS via systemd-resolved (Ubuntu 24.04 stub resolver has no upstream on private-only nodes)
+  - mkdir -p /etc/systemd/resolved.conf.d
+  - echo -e "[Resolve]\nDNS=8.8.8.8 8.8.4.4 1.1.1.1" > /etc/systemd/resolved.conf.d/dns.conf
+  - systemctl restart systemd-resolved || true
+  # Ensure default route via Hetzner SDN gateway (not direct to master — /32 IPs can't ARP directly)
+  - "PRIV_IF=$(ip -o addr show | awk '$3 == \"inet\" && $4 ~ \"^10\\\\.0\\\\.\" {print $2; exit}')"
+  - "[ -n \"$PRIV_IF\" ] && ip route replace default via 10.0.0.1 dev $PRIV_IF || true"
   - apt-get update -y
-  # Configure routing for Hetzner private network
-  - ip route add 10.0.0.0/8 dev eth1 || true
-  - echo "10.0.0.0/8 dev eth1" >> /etc/dhcp/dhclient-exit-hooks.d/hetzner-routes || true
   # Configure UFW firewall — allow all traffic from private network
   - ufw default deny incoming
   - ufw default allow outgoing
