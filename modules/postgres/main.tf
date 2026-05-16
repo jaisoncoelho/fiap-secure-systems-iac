@@ -59,9 +59,9 @@ resource "hcloud_server" "postgres" {
   }
 
   user_data = templatefile("${path.module}/cloud-init-postgres.yaml.tpl", {
-    ssh_public_keys  = var.ssh_public_keys
-    postgres_user    = var.postgres_user
+    ssh_public_keys   = var.ssh_public_keys
+    postgres_user     = var.postgres_user
     postgres_password = var.postgres_password
-    database_names   = var.database_names
+    database_names    = var.database_names
   })
 }

@@ -1,11 +1,4 @@
 #cloud-config
-manage_resolv_conf: true
-resolv_conf:
-  nameservers:
-    - "8.8.8.8"
-    - "8.8.4.4"
-    - "1.1.1.1"
-
 packages:
   - fail2ban
   - curl
@@ -67,18 +60,26 @@ write_files:
       # directly-connected subnet table entry for the private interface.
       ip route replace default via 10.0.2.1 dev "$PRIV_IF" onlink || true
 
-      # Persist the default route across reboots using a systemd-networkd drop-in.
-      # Ubuntu 24.04 uses systemd-networkd; /etc/network/interfaces is not available.
-      mkdir -p /etc/systemd/network
+      # Configure DNS via systemd-resolved drop-in.
+      # cloud-init's manage_resolv_conf does NOT work on Ubuntu 24.04 because
+      # /etc/resolv.conf is a symlink to systemd-resolved's stub (127.0.0.53).
+      mkdir -p /etc/systemd/resolved.conf.d
       {
-        echo "[Match]"
-        echo "Name=$PRIV_IF"
-        echo ""
-        echo "[Route]"
-        echo "Gateway=10.0.2.1"
-        echo "GatewayOnLink=yes"
-      } > /etc/systemd/network/10-hetzner-private-default-route.network
-      systemctl restart systemd-networkd || true
+        echo "[Resolve]"
+        echo "DNS=8.8.8.8 8.8.4.4 1.1.1.1"
+      } > /etc/systemd/resolved.conf.d/dns.conf
+      systemctl restart systemd-resolved || true
+
+      # Persist the default route across reboots via networkd-dispatcher.
+      # IMPORTANT: Do NOT create a systemd-networkd .network file — it would
+      # override Hetzner's existing network config and strip the private IP
+      # from the interface (the root cause of the NAT gateway failure).
+      mkdir -p /etc/networkd-dispatcher/routable.d
+      {
+        echo '#!/bin/bash'
+        echo "ip route replace default via 10.0.2.1 dev $PRIV_IF onlink 2>/dev/null || true"
+      } > /etc/networkd-dispatcher/routable.d/50-nat-default-route.sh
+      chmod +x /etc/networkd-dispatcher/routable.d/50-nat-default-route.sh
 
       # Hetzner Cloud PAM workaround: Hetzner provisions servers with PAM requiring
       # a password change on first login. Package post-install scripts that invoke

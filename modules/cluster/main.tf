@@ -101,6 +101,24 @@ resource "hcloud_server" "master-node" {
     github_username = var.github_username
     github_pat      = var.github_pat
   })
+
+  # Health check: wait for cloud-init to finish and verify K3s is running
+  provisioner "remote-exec" {
+    inline = [
+      "echo '=== Waiting for cloud-init to complete ==='",
+      "sudo cloud-init status --wait",
+      "echo '=== Verifying K3s ==='",
+      "sudo kubectl get nodes --kubeconfig=/etc/rancher/k3s/k3s.yaml",
+      "echo '=== Master node ready ==='",
+    ]
+    connection {
+      type        = "ssh"
+      user        = "cluster"
+      private_key = var.ssh_private_key
+      host        = self.ipv4_address
+      timeout     = "10m"
+    }
+  }
 }
 
 resource "hcloud_server" "worker-nodes" {
