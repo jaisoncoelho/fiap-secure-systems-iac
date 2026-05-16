@@ -119,6 +119,8 @@ resource "hcloud_server" "worker-nodes" {
 
   network {
     network_id = var.private_network_id
+    # Static IP to avoid conflicts with other private nodes (postgres=10.0.2.2, rabbitmq=10.0.2.10)
+    ip = "10.0.2.${count.index + 20}"
   }
 
   user_data = templatefile("${path.module}/cloud-init-worker.yaml.tpl", {
