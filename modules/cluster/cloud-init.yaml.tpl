@@ -251,7 +251,8 @@ runcmd:
   # Install K3s with flannel vxlan backend, binding to private interface
   - |
     PRIV_IF=$(ip -o -4 addr show | awk '$4 ~ "^10[.]0[.]" {print $2; exit}')
-    curl https://get.k3s.io | INSTALL_K3S_EXEC="--node-ip=10.0.2.1 --advertise-address=10.0.2.1 --flannel-iface=$PRIV_IF --flannel-backend=vxlan --cluster-cidr=10.42.0.0/16 --service-cidr=10.43.0.0/16" sh -
+    PUB_IP=$(ip -o -4 addr show | awk '$4 !~ "^10[.]" && $4 !~ "^127[.]" {split($4,a,"/"); print a[1]; exit}')
+    curl https://get.k3s.io | INSTALL_K3S_EXEC="--tls-san=$PUB_IP --node-ip=10.0.2.1 --advertise-address=10.0.2.1 --flannel-iface=$PRIV_IF --flannel-backend=vxlan --cluster-cidr=10.42.0.0/16 --service-cidr=10.43.0.0/16" sh -
   - chown cluster:cluster /etc/rancher/k3s/k3s.yaml
   - chown cluster:cluster /var/lib/rancher/k3s/server/node-token
   # Configure Traefik logging and log synchronization
