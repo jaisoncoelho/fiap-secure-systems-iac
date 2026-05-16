@@ -173,11 +173,9 @@ write_files:
       set -e
 
       # Detect the public interface: the one with a non-private, non-loopback IPv4 address.
-      # IMPORTANT: filter $3 == "inet" to skip inet6 lines — otherwise the IPv6 loopback
-      # address (::1/128) matches first and PUB_IF is set to "lo", breaking MASQUERADE.
-      # On Hetzner, interface names may be eth0/eth1 or enp1s0/ens10 depending on
-      # the server type and kernel version.
-      PUB_IF=$(ip -o addr show | awk '$3 == "inet" && $4 !~ "^10\." && $4 !~ "^127\." {print $2; exit}')
+      # Use -4 flag to show only IPv4 addresses (skips inet6 lines that caused PUB_IF=lo).
+      # Use [.] instead of \. in awk to avoid "escape sequence treated as plain" warnings.
+      PUB_IF=$(ip -o -4 addr show | awk '$4 !~ "^10[.]" && $4 !~ "^127[.]" {print $2; exit}')
       if [ -z "$PUB_IF" ]; then
         echo "WARNING: Could not detect public interface, falling back to eth0"
         PUB_IF="eth0"
@@ -185,7 +183,7 @@ write_files:
       echo "Detected public interface: $PUB_IF"
 
       # Detect the private interface: the one with the 10.0.2.1 address (master node IP).
-      PRIV_IF=$(ip -o addr show | awk '$4 ~ "^10\.0\.2\.1/" {print $2}')
+      PRIV_IF=$(ip -o -4 addr show | awk '$4 ~ "^10[.]0[.]2[.]1/" {print $2}')
       if [ -z "$PRIV_IF" ]; then
         echo "WARNING: Could not detect private interface, falling back to eth1"
         PRIV_IF="eth1"
