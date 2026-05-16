@@ -131,6 +131,7 @@ write_files:
       %{ for db in database_names ~}
       sudo -u postgres psql -c "CREATE DATABASE ${db};" || true
       sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${db} TO $${PG_USER};" || true
+      sudo -u postgres psql -d ${db} -c "GRANT ALL ON SCHEMA public TO $${PG_USER};" || true
       %{ endfor ~}
 
       echo "=== PostgreSQL Setup Completed Successfully at $(date) ==="
