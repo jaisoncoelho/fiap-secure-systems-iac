@@ -242,12 +242,16 @@ runcmd:
   - ufw allow 10250/tcp
   - ufw allow 80/tcp
   - ufw allow 443/tcp
+  # Allow all traffic from private network (covers VXLAN UDP 8472, kubelet, inter-node communication)
+  - ufw allow from 10.0.0.0/8
   - ufw --force enable
   # Start and enable fail2ban
   - systemctl enable fail2ban
   - systemctl start fail2ban
-  # Install K3s with flannel vxlan backend
-  - curl https://get.k3s.io | INSTALL_K3S_EXEC="--flannel-backend=vxlan --cluster-cidr=10.42.0.0/16 --service-cidr=10.43.0.0/16" sh -
+  # Install K3s with flannel vxlan backend, binding to private interface
+  - |
+    PRIV_IF=$(ip -o -4 addr show | awk '$4 ~ "^10[.]0[.]" {print $2; exit}')
+    curl https://get.k3s.io | INSTALL_K3S_EXEC="--node-ip=10.0.2.1 --advertise-address=10.0.2.1 --flannel-iface=$PRIV_IF --flannel-backend=vxlan --cluster-cidr=10.42.0.0/16 --service-cidr=10.43.0.0/16" sh -
   - chown cluster:cluster /etc/rancher/k3s/k3s.yaml
   - chown cluster:cluster /var/lib/rancher/k3s/server/node-token
   # Configure Traefik logging and log synchronization
